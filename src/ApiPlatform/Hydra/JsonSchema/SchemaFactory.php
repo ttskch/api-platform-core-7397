@@ -104,7 +104,7 @@ final class SchemaFactory implements SchemaFactoryInterface, SchemaFactoryAwareI
      */
     public function buildSchema(string $className, string $format = 'jsonld', string $type = Schema::TYPE_OUTPUT, ?Operation $operation = null, ?Schema $schema = null, ?array $serializerContext = null, bool $forceCollection = false): Schema
     {
-        if ('jsonld' !== $format || 'input' === $type) {
+        if ('jsonld' !== $format) {
             return $this->schemaFactory->buildSchema($className, $format, $type, $operation, $schema, $serializerContext, $forceCollection);
         }
         if (!$this->isResourceClass($className)) {
@@ -122,8 +122,6 @@ final class SchemaFactory implements SchemaFactoryInterface, SchemaFactoryAwareI
             return $this->schemaFactory->buildSchema($className, $format, $type, $operation, $schema, $serializerContext, $forceCollection);
         }
 
-        $definitionName = $this->definitionNameFactory->create($className, $format, $inputOrOutputClass, $operation, $serializerContext);
-
         // JSON-LD is slightly different then JSON:API or HAL
         // All the references that are resources must also be in JSON-LD therefore combining
         // the HydraItemBaseSchema and the JSON schema is harder (unless we loop again through all relationship)
@@ -132,15 +130,28 @@ final class SchemaFactory implements SchemaFactoryInterface, SchemaFactoryAwareI
         $definitions = $schema->getDefinitions();
 
         $prefix = $this->getSchemaUriPrefix($schema->getVersion());
+        $key = $schema->getRootDefinitionKey();
         $collectionKey = $schema->getItemsDefinitionKey();
-        $key = $schema->getRootDefinitionKey() ?? $collectionKey;
+
+        // remove the original definition, it will be replaced by the input or output one
+        if (isset($key)) {
+            unset($definitions[$key]);
+        }
+
+        $definitionName = $this->definitionNameFactory->create($className, $format, $inputOrOutputClass, $operation, $serializerContext);
+        $definitionName .= sprintf('.%s', $type);
+
+        $jsonSchema = $this->schemaFactory->buildSchema($className, 'json', $type, $operation, null, $serializerContext, $forceCollection);
+        $jsonKey = $jsonSchema->getRootDefinitionKey() ?? $jsonSchema->getItemsDefinitionKey();
 
         if (!$collectionKey) {
+            $schema['$ref'] = $prefix.$definitionName;
+
             if ($this->transformed[$definitionName] ?? false) {
                 return $schema;
             }
 
-            $baseName = Schema::TYPE_OUTPUT === $type ? self::ITEM_BASE_SCHEMA_NAME : self::ITEM_BASE_SCHEMA_OUTPUT_NAME;
+            $baseName = Schema::TYPE_OUTPUT === $type ? self::ITEM_BASE_SCHEMA_OUTPUT_NAME : self::ITEM_BASE_SCHEMA_NAME;
 
             if ($this->isResourceClass($inputOrOutputClass)) {
                 if (!isset($definitions[$baseName])) {
@@ -150,17 +161,15 @@ final class SchemaFactory implements SchemaFactoryInterface, SchemaFactoryAwareI
 
             $allOf = new \ArrayObject(['allOf' => [
                 ['$ref' => $prefix.$baseName],
-                $definitions[$key],
+                ['$ref' => $prefix.$jsonKey],
             ]]);
 
-            if (isset($definitions[$key]['description'])) {
-                $allOf['description'] = $definitions[$key]['description'];
+            if (isset($definitions[$jsonKey]['description'])) {
+                $allOf['description'] = $definitions[$jsonKey]['description'];
             }
 
             $definitions[$definitionName] = $allOf;
             unset($definitions[$definitionName]['allOf'][1]['description']);
-
-            $schema['$ref'] = $prefix.$definitionName;
 
             $this->transformed[$definitionName] = true;
 
@@ -268,7 +277,9 @@ final class SchemaFactory implements SchemaFactoryInterface, SchemaFactoryAwareI
                 'properties' => [
                     $hydraPrefix.'member' => [
                         'type' => 'array',
-                        'items' => $schema['items'],
+                        'items' => [
+                            '$ref' => $prefix.$definitionName,
+                        ],
                     ],
                 ],
             ],
