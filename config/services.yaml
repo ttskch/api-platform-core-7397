@@ -18,3 +18,8 @@ services:
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones
+
+    App\ApiPlatform\Hydra\JsonSchema\SchemaFactory:
+        decorates: api_platform.hydra.json_schema.schema_factory
+        arguments:
+            - '@api_platform.hydra.json_schema.schema_factory.inner'
