@@ -130,7 +130,6 @@ final class SchemaFactory implements SchemaFactoryInterface, SchemaFactoryAwareI
         $definitions = $schema->getDefinitions();
 
         $prefix = $this->getSchemaUriPrefix($schema->getVersion());
-        $key = $schema->getRootDefinitionKey();
         $collectionKey = $schema->getItemsDefinitionKey();
 
         $definitionName = $this->definitionNameFactory->create($className, $format, $inputOrOutputClass, $operation, $serializerContext);
