@@ -137,8 +137,9 @@ final class SchemaFactory implements SchemaFactoryInterface, SchemaFactoryAwareI
             $definitionName .= '.input';
         }
 
-        $jsonSchema = $this->schemaFactory->buildSchema($className, 'json', $type, $operation, null, $serializerContext, $forceCollection);
+        $jsonSchema = $this->schemaFactory->buildSchema($className, 'json', $type, $operation, new Schema(version: $schema->getVersion()), $serializerContext, $forceCollection);
         $jsonKey = $jsonSchema->getRootDefinitionKey() ?? $jsonSchema->getItemsDefinitionKey();
+        $jsonDefinition = $jsonSchema->getDefinitions()[$jsonKey] ?? null;
 
         if (!$collectionKey) {
             $schema['$ref'] = $prefix.$definitionName;
@@ -157,7 +158,10 @@ final class SchemaFactory implements SchemaFactoryInterface, SchemaFactoryAwareI
 
             $allOf = new \ArrayObject(['allOf' => [
                 ['$ref' => $prefix.$baseName],
-                ['$ref' => $prefix.$jsonKey],
+                // It cannot always be referenced, as there may be resources that don't have a JSON schema but only a JSON-LD schema.
+                // It's not certain at the time the JSON-LD schema is being generated whether a JSON schema will ultimately be defined.
+                // Therefore, the JSON schema will be referenced only if it's already defined.
+                isset($definitions[$jsonKey]) ? ['$ref' => $prefix.$jsonKey] : $jsonDefinition,
             ]]);
 
             if (isset($definitions[$jsonKey]['description'])) {
