@@ -133,13 +133,10 @@ final class SchemaFactory implements SchemaFactoryInterface, SchemaFactoryAwareI
         $key = $schema->getRootDefinitionKey();
         $collectionKey = $schema->getItemsDefinitionKey();
 
-        // remove the original definition, it will be replaced by the input or output one
-        if (isset($key)) {
-            unset($definitions[$key]);
-        }
-
         $definitionName = $this->definitionNameFactory->create($className, $format, $inputOrOutputClass, $operation, $serializerContext);
-        $definitionName .= sprintf('.%s', $type);
+        if (Schema::TYPE_INPUT === $type) {
+            $definitionName .= '.input';
+        }
 
         $jsonSchema = $this->schemaFactory->buildSchema($className, 'json', $type, $operation, null, $serializerContext, $forceCollection);
         $jsonKey = $jsonSchema->getRootDefinitionKey() ?? $jsonSchema->getItemsDefinitionKey();
