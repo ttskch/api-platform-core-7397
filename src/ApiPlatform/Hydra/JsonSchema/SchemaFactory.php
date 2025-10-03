@@ -156,12 +156,11 @@ final class SchemaFactory implements SchemaFactoryInterface, SchemaFactoryAwareI
                 }
             }
 
+            $definitions[$jsonKey] ??= $jsonDefinition;
+
             $allOf = new \ArrayObject(['allOf' => [
                 ['$ref' => $prefix.$baseName],
-                // It cannot always be referenced, as there may be resources that don't have a JSON schema but only a JSON-LD schema.
-                // It's not certain at the time the JSON-LD schema is being generated whether a JSON schema will ultimately be defined.
-                // Therefore, the JSON schema will be referenced only if it's already defined.
-                isset($definitions[$jsonKey]) ? ['$ref' => $prefix.$jsonKey] : $jsonDefinition,
+                ['$ref' => $prefix.$jsonKey],
             ]]);
 
             if (isset($definitions[$jsonKey]['description'])) {
