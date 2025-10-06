@@ -37,7 +37,6 @@ final class SchemaFactory implements SchemaFactoryInterface, SchemaFactoryAwareI
     use SchemaUriPrefixTrait;
 
     private const ITEM_BASE_SCHEMA_NAME = 'HydraItemBaseSchema';
-    private const ITEM_BASE_SCHEMA_OUTPUT_NAME = 'HydraOutputBaseSchema';
     private const COLLECTION_BASE_SCHEMA_NAME = 'HydraCollectionBaseSchema';
     private const BASE_PROP = [
         'type' => 'string',
@@ -69,11 +68,8 @@ final class SchemaFactory implements SchemaFactoryInterface, SchemaFactoryAwareI
                 ],
             ],
         ] + self::BASE_PROPS,
-    ];
-
-    private const ITEM_BASE_SCHEMA_OUTPUT = [
         'required' => ['@id', '@type'],
-    ] + self::ITEM_BASE_SCHEMA;
+    ];
 
     /**
      * @var array<string, true>
@@ -104,6 +100,14 @@ final class SchemaFactory implements SchemaFactoryInterface, SchemaFactoryAwareI
      */
     public function buildSchema(string $className, string $format = 'jsonld', string $type = Schema::TYPE_OUTPUT, ?Operation $operation = null, ?Schema $schema = null, ?array $serializerContext = null, bool $forceCollection = false): Schema
     {
+        // The input schema must not include `@id` or `@type` as required fields, so it should be a pure JSON schema.
+        // Strictly speaking, it is possible to include `@id` or `@context` in the input,
+        // but the generated JSON Schema does not include `"additionalProperties": false` by default,
+        // so it is possible to include `@id` or `@context` in the input even if the input schema is a JSON schema.
+        if (Schema::TYPE_INPUT === $type) {
+            $format = 'json';
+        }
+
         if ('jsonld' !== $format) {
             return $this->schemaFactory->buildSchema($className, $format, $type, $operation, $schema, $serializerContext, $forceCollection);
         }
@@ -122,6 +126,8 @@ final class SchemaFactory implements SchemaFactoryInterface, SchemaFactoryAwareI
             return $this->schemaFactory->buildSchema($className, $format, $type, $operation, $schema, $serializerContext, $forceCollection);
         }
 
+        $definitionName = $this->definitionNameFactory->create($className, $format, $inputOrOutputClass, $operation, $serializerContext);
+
         // JSON-LD is slightly different then JSON:API or HAL
         // All the references that are resources must also be in JSON-LD therefore combining
         // the HydraItemBaseSchema and the JSON schema is harder (unless we loop again through all relationship)
@@ -131,44 +137,32 @@ final class SchemaFactory implements SchemaFactoryInterface, SchemaFactoryAwareI
 
         $prefix = $this->getSchemaUriPrefix($schema->getVersion());
         $collectionKey = $schema->getItemsDefinitionKey();
-
-        $definitionName = $this->definitionNameFactory->create($className, $format, $inputOrOutputClass, $operation, $serializerContext);
-        if (Schema::TYPE_INPUT === $type) {
-            $definitionName .= '.input';
-        }
-
-        $jsonSchema = $this->schemaFactory->buildSchema($className, 'json', $type, $operation, new Schema(version: $schema->getVersion()), $serializerContext, $forceCollection);
-        $jsonKey = $jsonSchema->getRootDefinitionKey() ?? $jsonSchema->getItemsDefinitionKey();
-        $jsonDefinition = $jsonSchema->getDefinitions()[$jsonKey] ?? null;
+        $key = $schema->getRootDefinitionKey() ?? $collectionKey;
 
         if (!$collectionKey) {
-            $schema['$ref'] = $prefix.$definitionName;
-
             if ($this->transformed[$definitionName] ?? false) {
                 return $schema;
             }
 
-            $baseName = Schema::TYPE_OUTPUT === $type ? self::ITEM_BASE_SCHEMA_OUTPUT_NAME : self::ITEM_BASE_SCHEMA_NAME;
+            $baseName = self::ITEM_BASE_SCHEMA_NAME;
 
-            if ($this->isResourceClass($inputOrOutputClass)) {
-                if (!isset($definitions[$baseName])) {
-                    $definitions[$baseName] = Schema::TYPE_OUTPUT === $type ? self::ITEM_BASE_SCHEMA_OUTPUT : self::ITEM_BASE_SCHEMA;
-                }
+            if (!isset($definitions[$baseName])) {
+                $definitions[$baseName] = self::ITEM_BASE_SCHEMA;
             }
-
-            $definitions[$jsonKey] ??= $jsonDefinition;
 
             $allOf = new \ArrayObject(['allOf' => [
                 ['$ref' => $prefix.$baseName],
-                ['$ref' => $prefix.$jsonKey],
+                $definitions[$key],
             ]]);
 
-            if (isset($definitions[$jsonKey]['description'])) {
-                $allOf['description'] = $definitions[$jsonKey]['description'];
+            if (isset($definitions[$key]['description'])) {
+                $allOf['description'] = $definitions[$key]['description'];
             }
 
             $definitions[$definitionName] = $allOf;
             unset($definitions[$definitionName]['allOf'][1]['description']);
+
+            $schema['$ref'] = $prefix.$definitionName;
 
             $this->transformed[$definitionName] = true;
 
@@ -198,6 +192,7 @@ final class SchemaFactory implements SchemaFactoryInterface, SchemaFactoryAwareI
                 'type' => 'object',
                 'required' => [
                     $hydraPrefix.'member',
+                    'items' => ['type' => 'object'],
                 ],
                 'properties' => [
                     $hydraPrefix.'member' => [
@@ -276,9 +271,7 @@ final class SchemaFactory implements SchemaFactoryInterface, SchemaFactoryAwareI
                 'properties' => [
                     $hydraPrefix.'member' => [
                         'type' => 'array',
-                        'items' => [
-                            '$ref' => $prefix.$definitionName,
-                        ],
+                        'items' => $schema['items'],
                     ],
                 ],
             ],
